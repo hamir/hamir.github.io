@@ -263,7 +263,7 @@ function render(){
         <span class="caret">▶</span>
         <span class="root-ar ar">${hl(r.root,term)}</span>
         <span class="root-en">${hl(r.translation,term)}</span>
-        <span class="root-meta">${r.meanings.map(s => hl(s.label.toLowerCase(),term)).join(' - ')}</span>
+        <span class="root-meta">${r.meanings.map(s => hl(s.label.toLowerCase(),term)).join(' · ')}</span>
         <span class="tags" data-root="${esc(r.root)}">${renderTags(r.root)}</span>
         <span class="root-score"><span class="score-num">${r.word_count.toLocaleString()}</span>
           <span class="score-lbl">words</span></span>
