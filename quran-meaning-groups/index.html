@@ -490,7 +490,7 @@ function getDb(){
         serverMode: 'full',
         url: new URL('quran_lingo.db', location.href).toString(),
         requestChunkSize: 4096,  // must match the db's PRAGMA page_size
-        fileLength: 27750400,  // GitHub Pages omits Content-Length on HEAD
+        fileLength: 27774976,  // GitHub Pages omits Content-Length on HEAD
       }}],
       new URL('sqljs/sqlite.worker.js', location.href).toString(),
       new URL('sqljs/sql-wasm.wasm', location.href).toString()
