@@ -184,7 +184,7 @@
   <div class="controls">
     <input id="q" type="search" placeholder="Search root, meaning group, or lemma…" autocomplete="off">
     <select id="sort">
-      <option value="score">Sort: words</option>
+      <option value="score">Sort: relevance</option>
       <option value="meanings">Sort: # meanings</option>
       <option value="root">Sort: root (A→Z)</option>
     </select>
@@ -233,7 +233,7 @@ function render(){
   items.sort((a,b) =>
     sort==='root' ? a.r.root.localeCompare(b.r.root) :
     sort==='meanings' ? b.r.meanings.length-a.r.meanings.length :
-    b.r.word_count-a.r.word_count);
+    b.r.score-a.r.score);
 
   stats.textContent = items.length+' roots · '+
     items.reduce((n,x)=>n+x.sections.length,0)+' meaning groups';
