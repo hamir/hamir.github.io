@@ -184,7 +184,7 @@
   <div class="controls">
     <input id="q" type="search" placeholder="Search root, meaning group, or lemma…" autocomplete="off">
     <select id="sort">
-      <option value="score">Sort: score</option>
+      <option value="score">Sort: words</option>
       <option value="meanings">Sort: # meanings</option>
       <option value="root">Sort: root (A→Z)</option>
     </select>
@@ -233,7 +233,7 @@ function render(){
   items.sort((a,b) =>
     sort==='root' ? a.r.root.localeCompare(b.r.root) :
     sort==='meanings' ? b.r.meanings.length-a.r.meanings.length :
-    b.r.score-a.r.score);
+    b.r.word_count-a.r.word_count);
 
   stats.textContent = items.length+' roots · '+
     items.reduce((n,x)=>n+x.sections.length,0)+' meaning groups';
@@ -269,11 +269,10 @@ function render(){
         <span class="root-ar ar">${hl(r.root,term)}</span>
         <span class="root-en">${hl(r.translation,term)}</span>
         <span class="root-meta"><span class="ar">${hl(r.groups[0],term)}</span>
-          · ${r.meanings.length} meaning${r.meanings.length>1?'s':''}
-          · ${r.word_count.toLocaleString()} word${r.word_count>1?'s':''}</span>
+          · ${r.meanings.length} meaning${r.meanings.length>1?'s':''}</span>
         <span class="tags" data-root="${esc(r.root)}">${renderTags(r.root)}</span>
-        <span class="root-score"><span class="score-num">${r.score.toLocaleString()}</span>
-          <span class="score-lbl">score</span></span>
+        <span class="root-score"><span class="score-num">${r.word_count.toLocaleString()}</span>
+          <span class="score-lbl">words</span></span>
       </div>
       <div class="lemmas">${r.core ? `
       <div class="core-meaning">${hl(r.core,term)}</div>` : ''}<table>
