@@ -96,6 +96,8 @@
     background:var(--panel); border:1px solid var(--line); border-radius:10px;
   }
   .frag-loc { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+  .frag-combined { color:var(--muted); font-size:11px; border:1px solid var(--line);
+    border-radius:8px; padding:0 6px; margin-left:6px; vertical-align:1px; }
   .frag-words { display:flex; flex-wrap:wrap; direction:rtl; gap:4px 4px; margin:4px 0 2px; }
   .frag-words .w {
     display:flex; flex-direction:column; align-items:center; text-align:center;
@@ -148,6 +150,32 @@
   .fchip .fchip-x:hover { color:#c0392b; }
   .fchip.confirm { background:#cf222e; border-color:#cf222e; color:#fff; }
   .fchip.confirm .cnt, .fchip.confirm .fchip-x { color:#ffd7db; }
+  /* ---- mobile ---- */
+  @media (max-width: 640px) {
+    header { padding:10px 12px; }
+    h1 { font-size:17px; margin-bottom:8px; }
+    .controls { gap:8px; }
+    input, select { font-size:16px; padding:7px 10px; } /* <16px makes iOS zoom on focus */
+    input#q { min-width:0; flex:1 1 100%; }
+    .stats { font-size:12px; }
+    main { padding:12px 8px 60px; }
+    .root-head { flex-wrap:wrap; gap:6px 10px; padding:10px 12px; }
+    .root-ar { font-size:22px; min-width:0; }
+    .root-score { text-align:left; display:flex; align-items:baseline; gap:4px; }
+    .score-num { font-size:15px; }
+    .root-meta { flex-basis:100%; order:6; font-size:12px; }
+    .tags { order:7; }
+    .core-meaning { padding:8px 10px 0; }
+    th, td { padding:8px 6px; }
+    th:first-child, td:first-child { padding-left:12px; }
+    th:last-child, td:last-child { padding-right:12px; }
+    td.lemma-ar { font-size:18px; }
+    tr.sense-row td { padding:5px 12px; }
+    .sense-desc { display:block; margin-left:0; }
+    tr.frag-row > td { padding:4px 8px 12px; }
+    .frag { padding:8px 10px; }
+    .frag-words .wa { font-size:19px; }
+  }
 </style>
 </head>
 <body>
@@ -464,7 +492,7 @@ function getDb(){
         serverMode: 'full',
         url: new URL('quran_lingo.db', location.href).toString(),
         requestChunkSize: 4096,  // must match the db's PRAGMA page_size
-        fileLength: 27725824,  // GitHub Pages omits Content-Length on HEAD
+        fileLength: 27750400,  // GitHub Pages omits Content-Length on HEAD
       }}],
       new URL('sqljs/sqlite.worker.js', location.href).toString(),
       new URL('sqljs/sql-wasm.wasm', location.href).toString()
@@ -496,11 +524,42 @@ async function fragmentsStatic(lemma, root, meaning){
     hits.get(r.fid).add(r.wi);
   }
   if(!hits.size) return [];
-  const fids = [...hits.keys()];
-  const ph = fids.map(() => '?').join(',');
+  const hitFids = [...hits.keys()];
+  let ph = hitFids.map(() => '?').join(',');
+  // Combined-context spans for hit words whose fragment is too short.
+  const needRows = await db.query(
+    `SELECT surah, ayah, word, combine_start cs, combine_end ce
+     FROM word_context_needs WHERE fragment_id IN (${ph})`, hitFids);
+  const needs = new Map(needRows.map(r => [r.surah+':'+r.ayah+':'+r.word, r]));
+  const spans = new Map();  // hit fid -> widest [lo, hi] its hit words ask for
+  for(const r of rows){
+    if(!hits.get(r.fid)?.has(r.wi)) continue;
+    const n = needs.get(r.surah+':'+r.ayah+':'+r.word);
+    if(!n) continue;
+    const cur = spans.get(r.fid) || [n.cs, n.ce];
+    spans.set(r.fid, [Math.min(cur[0], n.cs), Math.max(cur[1], n.ce)]);
+  }
   const frags = await db.query(
     `SELECT fragment_id fid, surah, ayah, position, english FROM fragments
-     WHERE fragment_id IN (${ph}) ORDER BY surah, ayah, position`, fids);
+     WHERE fragment_id IN (${ph}) ORDER BY surah, ayah, position`, hitFids);
+  const fragInfo = new Map(frags.map(f => [f.fid, f]));
+  // Pull in the neighbor fragments of every combined span.
+  const byPos = new Map();  // "s:a" -> Map(position -> {fid, english})
+  for(const fid of spans.keys()){
+    const f = fragInfo.get(fid), ak = f.surah+':'+f.ayah;
+    if(byPos.has(ak)) continue;
+    const nbrs = await db.query(
+      `SELECT fragment_id fid, position, english FROM fragments
+       WHERE surah = ? AND ayah = ?`, [f.surah, f.ayah]);
+    byPos.set(ak, new Map(nbrs.map(n => [n.position, n])));
+  }
+  const allFids = new Set(hitFids);
+  for(const [fid, [lo, hi]] of spans){
+    const f = fragInfo.get(fid), m = byPos.get(f.surah+':'+f.ayah);
+    for(let p = lo; p <= hi; p++) allFids.add(m.get(p).fid);
+  }
+  const fids = [...allFids];
+  ph = fids.map(() => '?').join(',');
   const words = await db.query(
     `SELECT fragment_id fid, word_index wi, arabic FROM fragment_words
      WHERE fragment_id IN (${ph}) ORDER BY fragment_id, word_index`, fids);
@@ -524,13 +583,40 @@ async function fragmentsStatic(lemma, root, meaning){
     const parts = glossParts.get(k);
     if(!parts.includes(s.en)) parts.push(s.en);  // segments often repeat the word gloss
   }
-  return frags.map(f => ({
-    surah: f.surah, ayah: f.ayah, position: f.position, english: f.english,
-    words: byFrag.get(f.fid) || [],
-    glosses: (byFrag.get(f.fid) || []).map((_, wi) =>
-      (glossParts.get(f.fid+'\u0001'+wi) || []).join(' ')),
-    highlights: [...hits.get(f.fid)].sort((a,b) => a-b),
-  }));
+  // One display unit per (ayah, span); a plain fragment is the span
+  // [position, position]. Hit fragments expanding to the same span merge.
+  const units = new Map();
+  for(const f of frags){
+    const [lo, hi] = spans.get(f.fid) || [f.position, f.position];
+    const key = f.surah+':'+f.ayah+':'+lo+':'+hi;
+    if(!units.has(key)) units.set(key, {f, lo, hi, hl: []});
+    for(const wi of hits.get(f.fid)) units.get(key).hl.push([f.fid, wi]);
+  }
+  return [...units.values()]
+    .sort((a,b) => a.f.surah-b.f.surah || a.f.ayah-b.f.ayah || a.lo-b.lo)
+    .map(({f, lo, hi, hl}) => {
+      const members = hi > lo
+        ? Array.from({length: hi-lo+1}, (_, i) =>
+            byPos.get(f.surah+':'+f.ayah).get(lo+i))
+        : [{fid: f.fid, english: f.english}];
+      const ws = [], gs = [], ens = [], offsets = new Map();
+      for(const m of members){
+        offsets.set(m.fid, ws.length);
+        const mw = byFrag.get(m.fid) || [];
+        mw.forEach((w, wi) => {
+          ws.push(w);
+          gs.push((glossParts.get(m.fid+'\u0001'+wi) || []).join(' '));
+        });
+        if(m.english) ens.push(m.english);
+      }
+      const unit = {
+        surah: f.surah, ayah: f.ayah, position: lo,
+        english: ens.join(' ') || null, words: ws, glosses: gs,
+        highlights: hl.map(([fid, wi]) => offsets.get(fid)+wi).sort((a,b) => a-b),
+      };
+      if(hi > lo) unit.combined = [lo, hi];
+      return unit;
+    });
 }
 
 async function fetchFragments(lemma, root, meaning){
@@ -554,7 +640,9 @@ function renderFragments(list){
         <span class="we">${esc((f.glosses||[])[i]||'')}</span>
       </span>`).join('');
     return `<div class="frag">
-      <span class="frag-loc">${f.surah}:${f.ayah}</span>
+      <span class="frag-loc">${f.surah}:${f.ayah}${f.combined
+        ? '<span class="frag-combined" title="This word\u2019s own fragment is too short to learn from; neighboring fragments are shown for context">+ context</span>'
+        : ''}</span>
       <div class="frag-words">${words}</div>
       <div class="frag-en">${esc(f.english||'')}</div>
     </div>`;
